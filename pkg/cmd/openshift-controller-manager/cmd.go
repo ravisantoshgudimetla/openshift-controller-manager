@@ -85,7 +85,6 @@ func (o *OpenShiftControllerManager) StartControllerManager(stopCh <-chan struct
 	}
 
 	go daemon.SdNotify(false, "READY=1")
-
 	select {
 	case <-stopCh:
 		klog.Infof("Controller Manager received stop signal. exiting.")
@@ -131,5 +130,9 @@ func (o *OpenShiftControllerManager) RunControllerManager() error {
 	if err != nil {
 		return err
 	}
-	return RunOpenShiftControllerManager(config, clientConfig)
+	if err = RunOpenShiftControllerManager(config, clientConfig); err != nil {
+		return err
+	}
+	// TODO: Split RouteController into its own config and command.
+	return RunRouteControllerManager(config, clientConfig)
 }
