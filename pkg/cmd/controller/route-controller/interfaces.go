@@ -9,12 +9,14 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	cacheddiscovery "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
+	"k8s.io/controller-manager/app"
 	"k8s.io/controller-manager/pkg/clientbuilder"
 
 	openshiftcontrolplanev1 "github.com/openshift/api/openshiftcontrolplane/v1"
@@ -108,6 +110,10 @@ func (b RouteControllerClientBuilder) OpenshiftOperatorClientOrDie(name string) 
 		klog.Fatal(err)
 	}
 	return client
+}
+
+func (c *ControllerContext) IsControllerEnabled(name string) bool {
+	return app.IsControllerEnabled(name, sets.String{}, c.OpenshiftControllerConfig.Controllers)
 }
 
 func (c *ControllerContext) StartInformers(stopCh <-chan struct{}) {

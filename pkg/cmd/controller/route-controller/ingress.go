@@ -8,19 +8,19 @@ import (
 	"github.com/openshift/openshift-controller-manager/pkg/route/ingress"
 )
 
-func RunIngressToRouteController(ctx *ControllerContext) (bool, error) {
+func getIngressToRouteController(ctx *ControllerContext) (*ingress.Controller, error) {
 	clientConfig := ctx.ClientBuilder.ConfigOrDie(infraIngressToRouteControllerServiceAccountName)
 	coreClient, err := coreclient.NewForConfig(clientConfig)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	routeClient, err := routeclient.NewForConfig(clientConfig)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	networkingClient, err := networkingv1.NewForConfig(clientConfig)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	controller := ingress.NewController(
@@ -33,8 +33,5 @@ func RunIngressToRouteController(ctx *ControllerContext) (bool, error) {
 		ctx.KubernetesInformers.Core().V1().Services(),
 		ctx.RouteInformers.Route().V1().Routes(),
 	)
-
-	go controller.Run(5, ctx.Stop)
-
-	return true, nil
+	return controller, nil
 }

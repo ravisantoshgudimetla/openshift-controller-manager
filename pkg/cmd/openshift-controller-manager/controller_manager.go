@@ -69,6 +69,18 @@ func RunOpenShiftControllerManager(config *openshiftcontrolplanev1.OpenShiftCont
 		if err := startControllers(controllerContext); err != nil {
 			klog.Fatal(err)
 		}
+		// Start Route Controllers
+		routeControllerContext, err := routecontrollers.NewControllerContext(ctx, *config, clientConfig)
+		if err != nil {
+			klog.Fatal(err)
+		}
+		started, err := routecontrollers.RunRouteControllerManager(routeControllerContext)
+		if err != nil {
+			klog.Fatalf("Error starting route controller manager (%v)", err)
+		}
+		if !started {
+			klog.Warningf("Skipping route controller manager")
+		}
 		controllerContext.StartInformers(ctx.Done())
 	}
 
@@ -110,77 +122,6 @@ func RunOpenShiftControllerManager(config *openshiftcontrolplanev1.OpenShiftCont
 	return nil
 }
 
-func RunRouteControllerManager(config *openshiftcontrolplanev1.OpenShiftControllerManagerConfig, clientConfig *rest.Config) error {
-	serviceability.InitLogrusFromKlog()
-	kubeClient, err := kubernetes.NewForConfig(clientConfig)
-	if err != nil {
-		return err
-	}
-
-	// only serve if we have serving information.
-	// TODO: Identify if this is needed or not
-	if config.ServingInfo != nil {
-		klog.Infof("Starting controllers on %s (%s)", config.ServingInfo.BindAddress, version.Get().String())
-
-		if err := origincontrollers.RunControllerServer(*config.ServingInfo, kubeClient); err != nil {
-			return err
-		}
-	}
-
-	routeControllerManager := func(ctx context.Context) {
-		if err := WaitForHealthyAPIServer(kubeClient.Discovery().RESTClient()); err != nil {
-			klog.Fatal(err)
-		}
-
-		controllerContext, err := routecontrollers.NewControllerContext(ctx, *config, clientConfig)
-		if err != nil {
-			klog.Fatal(err)
-		}
-		if err := startRouteControllers(controllerContext); err != nil {
-			klog.Fatal(err)
-		}
-		controllerContext.StartInformers(ctx.Done())
-	}
-
-	eventBroadcaster := record.NewBroadcaster()
-	eventBroadcaster.StartLogging(klog.Infof)
-	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: kubeClient.CoreV1().Events("")})
-	eventRecorder := eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: "openshift-route-controller-manager"})
-	id, err := os.Hostname()
-	if err != nil {
-		return err
-	}
-	// Create a new lease for the route controller manager
-	rl, err := resourcelock.New(
-		"configmaps",                         // TODO: This should be changed to configmapsleases
-		"openshift-route-controller-manager", // TODO: This namespace needs to be created by ocm for now.
-		"openshift-route-controllers",
-		kubeClient.CoreV1(),
-		kubeClient.CoordinationV1(),
-		resourcelock.ResourceLockConfig{
-			Identity:      id,
-			EventRecorder: eventRecorder,
-		})
-	if err != nil {
-		return err
-	}
-	go leaderelection.RunOrDie(context.Background(),
-		leaderelection.LeaderElectionConfig{
-			Lock:            rl,
-			ReleaseOnCancel: true,
-			LeaseDuration:   config.LeaderElection.LeaseDuration.Duration,
-			RenewDeadline:   config.LeaderElection.RenewDeadline.Duration,
-			RetryPeriod:     config.LeaderElection.RetryPeriod.Duration,
-			Callbacks: leaderelection.LeaderCallbacks{
-				OnStartedLeading: routeControllerManager,
-				OnStoppedLeading: func() {
-					klog.Fatalf("leaderelection lost")
-				},
-			},
-		})
-	return nil
-}
-
 func WaitForHealthyAPIServer(client rest.Interface) error {
 	var healthzContent string
 	// If apiserver is not running we should wait for some time and fail only then. This is particularly
@@ -212,7 +153,6 @@ func startControllers(controllerContext *origincontrollers.ControllerContext) er
 			klog.Warningf("%q is disabled", controllerName)
 			continue
 		}
-
 		klog.V(1).Infof("Starting %q", controllerName)
 		started, err := initFn(controllerContext)
 		if err != nil {
@@ -225,27 +165,7 @@ func startControllers(controllerContext *origincontrollers.ControllerContext) er
 		}
 		klog.Infof("Started %q", controllerName)
 	}
-
 	klog.Infof("Started Origin Controllers")
 
-	return nil
-}
-
-func startRouteControllers(controllerContext *routecontrollers.ControllerContext) error {
-	for controllerName, initFn := range routecontrollers.ControllerInitializers {
-		klog.V(1).Infof("Starting %q", controllerName)
-		started, err := initFn(controllerContext)
-		if err != nil {
-			klog.Fatalf("Error starting %q (%v)", controllerName, err)
-			return err
-		}
-		if !started {
-			klog.Warningf("Skipping %q", controllerName)
-			continue
-		}
-		klog.Infof("Started %q", controllerName)
-	}
-
-	klog.Infof("Started Route Controllers")
 	return nil
 }
