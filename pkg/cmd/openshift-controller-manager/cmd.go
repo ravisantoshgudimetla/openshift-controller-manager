@@ -130,9 +130,5 @@ func (o *OpenShiftControllerManager) RunControllerManager() error {
 	if err != nil {
 		return err
 	}
-	if err = RunOpenShiftControllerManager(config, clientConfig); err != nil {
-		return err
-	}
-	// TODO: Split RouteController into its own config and command.
-	return RunRouteControllerManager(config, clientConfig)
+	return RunOpenShiftControllerManager(config, clientConfig)
 }
